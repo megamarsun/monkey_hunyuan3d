@@ -22,6 +22,7 @@ __all__ = (
     "unregister",
     "ADDON_ID",
     "get_logger",
+    "DEFAULT_REGION",
 )
 
 
@@ -40,6 +41,7 @@ bl_info = {
 
 ADDON_ID = (__package__ or "monkey_hunyuan3d").split(".")[0]
 _LOGGER_NAME = ADDON_ID
+DEFAULT_REGION = "ap-guangzhou"
 
 
 def get_logger() -> logging.Logger:
@@ -81,6 +83,28 @@ class MH3DSettings(bpy.types.PropertyGroup):
         name=_("Enable PBR"),
         description=_("Request physically based rendering materials when supported."),
         default=True,
+    )
+    region: EnumProperty(
+        name=_("Region"),
+        description=_("Tencent Cloud region used for the Hunyuan3D service."),
+        items=(
+            (
+                "ap-guangzhou",
+                "ap-guangzhou",
+                _("Use the ap-guangzhou region."),
+            ),
+            (
+                "ap-shanghai",
+                "ap-shanghai",
+                _("Use the ap-shanghai region."),
+            ),
+            (
+                "ap-singapore",
+                "ap-singapore",
+                _("Use the ap-singapore region."),
+            ),
+        ),
+        default=DEFAULT_REGION,
     )
     secret_id: StringProperty(
         name=_("SecretId"),

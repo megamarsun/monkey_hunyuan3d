@@ -16,13 +16,12 @@ import bpy
 from bpy.app.translations import pgettext_iface as _
 from bpy.types import Operator
 
-from . import get_logger
+from . import DEFAULT_REGION, get_logger
 
 logger = get_logger()
 
 API_ENDPOINT = "ai3d.tencentcloudapi.com"
 API_VERSION = "2025-05-13"
-API_REGION = "ap-shanghai"
 POLL_INTERVAL = 2.0
 
 
@@ -68,11 +67,14 @@ def _import_sdk() -> _SDKBundle:
     )
 
 
-def _create_client(bundle: _SDKBundle, secret_id: str, secret_key: str) -> Any:
+def _create_client(
+    bundle: _SDKBundle, secret_id: str, secret_key: str, region: Optional[str] = None
+) -> Any:
     http_profile = bundle.http_profile_cls(endpoint=API_ENDPOINT)
     client_profile = bundle.client_profile_cls(httpProfile=http_profile)
     cred = bundle.credential_factory(secret_id, secret_key)
-    return bundle.client_cls(cred, API_REGION, client_profile)
+    region_value = (region or DEFAULT_REGION).strip() or DEFAULT_REGION
+    return bundle.client_cls(cred, region_value, client_profile)
 
 
 def _download_file(url: str, suffix: str) -> str:
@@ -185,7 +187,8 @@ class MH3D_OT_Generate(Operator):
         settings.last_status = "SUBMITTING"
         settings.job_id = ""
 
-        client = _create_client(bundle, secret_id, secret_key)
+        region = settings.region or DEFAULT_REGION
+        client = _create_client(bundle, secret_id, secret_key, region)
         params: Dict[str, Any] = {
             "Prompt": prompt,
             "ResultFormat": settings.result_format,
@@ -239,7 +242,7 @@ class MH3D_OT_Generate(Operator):
                 return None
 
             try:
-                client_inner = _create_client(bundle, secret_id, secret_key)
+                client_inner = _create_client(bundle, secret_id, secret_key, region)
                 raw = client_inner.call("QueryHunyuanTo3DJob", {"JobId": job_id})
                 payload = json.loads(raw).get("Response", {})
             except bundle.exception_cls as exc:  # type: ignore[attr-defined]

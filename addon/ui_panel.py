@@ -72,6 +72,7 @@ class MH3D_PT_MainPanel(bpy.types.Panel):
         gen_col.prop(settings, "prompt", text=_("Prompt"))
         gen_col.prop(settings, "result_format", text=_("Result Format"))
         gen_col.prop(settings, "enable_pbr", text=_("Enable PBR"))
+        gen_col.prop(settings, "region", text=_("Region"))
 
         run_box = layout.box()
         run_box.label(text=_("Run"), icon='PLAY')
