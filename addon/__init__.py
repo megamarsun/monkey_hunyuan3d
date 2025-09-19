@@ -82,7 +82,7 @@ class MH3DSettings(bpy.types.PropertyGroup):
     enable_pbr: BoolProperty(
         name=_("Enable PBR"),
         description=_("Request physically based rendering materials when supported."),
-        default=True,
+        default=False,
     )
     region: EnumProperty(
         name=_("Region"),

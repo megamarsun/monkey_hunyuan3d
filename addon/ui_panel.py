@@ -84,10 +84,13 @@ class MH3D_PT_MainPanel(bpy.types.Panel):
         status_col.label(
             text=_("JobId: {job_id}").format(job_id=settings.job_id or _("-"))
         )
+        readable_status = _format_status(settings.last_status)
+        raw_status = settings.last_status or _("-")
         status_col.label(
-            text=_("Status: {status}").format(
-                status=_format_status(settings.last_status)
-            )
+            text=_("Status: {status}").format(status=readable_status)
+        )
+        status_col.label(
+            text=_("Raw Status: {status}").format(status=raw_status)
         )
         error_text = settings.last_error.strip()
         status_col.label(
