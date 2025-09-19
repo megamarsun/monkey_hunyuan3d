@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, Optional
 
 import bpy
 from bpy.app.translations import pgettext_iface as _
-from bpy.types import Operator
+from bpy.types import Operator, Window
 
 from . import DEFAULT_REGION, get_logger
 
@@ -144,13 +144,63 @@ class MH3D_OT_Generate(Operator):
     bl_options = {'REGISTER'}
 
     _active_job: Optional[str] = None
+    _wait_cursor_count: int = 0
+    _wait_cursor_windows: list[tuple[Window, str]] = []
 
     def _resolve_credentials(self, settings: bpy.types.PropertyGroup) -> tuple[str, str]:
         secret_id = os.environ.get("TENCENTCLOUD_SECRET_ID") or settings.secret_id.strip()
         secret_key = os.environ.get("TENCENTCLOUD_SECRET_KEY") or settings.secret_key.strip()
         return secret_id, secret_key
 
+    def _set_wait_cursor(self, context: bpy.types.Context) -> None:
+        self._cursor_engaged = False
+        manager = getattr(context, "window_manager", None)
+        if manager is None:
+            return
+        windows: list[tuple[Window, str]] = []
+        for window in getattr(manager, "windows", []):
+            try:
+                window.cursor_modal_set('WAIT')
+                windows.append((window, "modal"))
+            except Exception:
+                try:
+                    window.cursor_set('WAIT')
+                    windows.append((window, "set"))
+                except Exception:
+                    continue
+        if not windows:
+            return
+        cls = type(self)
+        cls._wait_cursor_windows = windows
+        cls._wait_cursor_count += 1
+        self._cursor_engaged = True
+
+    def _restore_cursor(self) -> None:
+        if not getattr(self, "_cursor_engaged", False):
+            return
+        cls = type(self)
+        if cls._wait_cursor_count > 0:
+            cls._wait_cursor_count -= 1
+        else:
+            cls._wait_cursor_count = 0
+        self._cursor_engaged = False
+        if cls._wait_cursor_count > 0:
+            return
+        windows = cls._wait_cursor_windows
+        cls._wait_cursor_windows = []
+        for window, mode in windows:
+            try:
+                if mode == "modal":
+                    window.cursor_modal_restore()
+            except Exception:
+                pass
+            try:
+                window.cursor_set('DEFAULT')
+            except Exception:
+                pass
+
     def execute(self, context: bpy.types.Context) -> set[str]:
+        self._cursor_engaged = False
         scene = context.scene
         if not scene:
             self.report({'ERROR'}, _("No active scene found."))
@@ -196,6 +246,7 @@ class MH3D_OT_Generate(Operator):
         if settings.enable_pbr:
             params["EnablePBR"] = True
 
+        self._set_wait_cursor(context)
         try:
             response_raw = client.call("SubmitHunyuanTo3DJob", params)
             response = json.loads(response_raw).get("Response", {})
@@ -206,6 +257,7 @@ class MH3D_OT_Generate(Operator):
             message = _("API error during submission: {error}").format(error=str(exc))
             settings.last_status = "ERROR"
             settings.last_error = message
+            self._restore_cursor()
             self.report({'ERROR'}, message)
             logger.error("Submission failed: %s", exc)
             return {'CANCELLED'}
@@ -213,6 +265,7 @@ class MH3D_OT_Generate(Operator):
             message = _("Unexpected error during submission: {error}").format(error=exc)
             settings.last_status = "ERROR"
             settings.last_error = message
+            self._restore_cursor()
             self.report({'ERROR'}, message)
             logger.error("Submission failed: %s", exc)
             return {'CANCELLED'}
@@ -229,6 +282,7 @@ class MH3D_OT_Generate(Operator):
             scene_inner = bpy.context.scene
             if not scene_inner or not hasattr(scene_inner, "mh3d_settings"):
                 logger.warning("Scene missing while polling job %s; stopping timer.", job_id)
+                self._restore_cursor()
                 self._active_job = None
                 return None
             settings_inner = scene_inner.mh3d_settings
@@ -238,6 +292,7 @@ class MH3D_OT_Generate(Operator):
                     settings_inner.job_id,
                     job_id,
                 )
+                self._restore_cursor()
                 self._active_job = None
                 return None
 
@@ -250,6 +305,7 @@ class MH3D_OT_Generate(Operator):
                 settings_inner.last_status = "ERROR"
                 settings_inner.last_error = message_inner
                 logger.error("Query failed for job %s: %s", job_id, exc)
+                self._restore_cursor()
                 self._active_job = None
                 return None
             except Exception as exc:  # pragma: no cover - depends on network state
@@ -257,6 +313,7 @@ class MH3D_OT_Generate(Operator):
                 settings_inner.last_status = "ERROR"
                 settings_inner.last_error = message_inner
                 logger.error("Query failed for job %s: %s", job_id, exc)
+                self._restore_cursor()
                 self._active_job = None
                 return None
 
@@ -277,6 +334,7 @@ class MH3D_OT_Generate(Operator):
                     settings_inner.last_error = _("No download URL returned by the service.")
                     settings_inner.last_status = "ERROR"
                     logger.error("Job %s completed but returned no URL.", job_id)
+                    self._restore_cursor()
                     self._active_job = None
                     return None
                 suffix = _suffix_for_format(settings_inner.result_format)
@@ -305,6 +363,7 @@ class MH3D_OT_Generate(Operator):
                             os.remove(filepath)
                         except Exception:  # pragma: no cover - best effort cleanup
                             logger.warning("Failed to remove temporary file %s", filepath)
+                self._restore_cursor()
                 self._active_job = None
                 return None
             if status in {"FAIL", "FAILED"}:
@@ -313,9 +372,12 @@ class MH3D_OT_Generate(Operator):
                 )
                 settings_inner.last_error = error_message
                 logger.error("Job %s failed: %s", job_id, error_message)
+                self._restore_cursor()
                 self._active_job = None
                 return None
 
+            self._restore_cursor()
+            self._active_job = None
             return None
 
         bpy.app.timers.register(poll_job, first_interval=POLL_INTERVAL)
