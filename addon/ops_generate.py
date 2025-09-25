@@ -303,6 +303,12 @@ class MH3D_OT_Generate(Operator):
             logger.error(message)
             return {'CANCELLED'}
 
+        if prompt:
+            message = _("Prompt cannot be used together with image input.")
+            self.report({'ERROR'}, message)
+            logger.error(message)
+            return {'CANCELLED'}
+
         try:
             image_b64 = _encode_image_to_base64(resolved_image_path)
         except ImportError:
@@ -356,11 +362,8 @@ class MH3D_OT_Generate(Operator):
         client = _create_client(bundle, secret_id, secret_key, region)
         params: Dict[str, Any] = {
             "ResultFormat": settings.result_format,
-            "Format": settings.result_format,
             "ImageBase64": image_b64,
         }
-        if prompt:
-            params["Prompt"] = prompt
         reenable_pbr_after_success = not settings.enable_pbr
         if settings.enable_pbr:
             params["EnablePBR"] = True

@@ -70,6 +70,7 @@ _LOCALE_DICT = {
         ("*", "No active scene found."): "アクティブなシーンが見つかりません。",
         ("*", "Settings are not available on the scene."): "シーンに設定がありません。",
         ("*", "Prompt is empty."): "プロンプトが空です。",
+        ("*", "Prompt cannot be used together with image input."): "画像入力とプロンプトは同時に使用できません。",
         ("*", "Please select an image file."): "画像ファイルを選択してください。",
         (
             "*",
