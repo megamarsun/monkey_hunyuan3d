@@ -69,6 +69,13 @@ class MH3DSettings(bpy.types.PropertyGroup):
         description=_("Prompt used for Hunyuan3D generation."),
         default="a cute robot toy",
     )
+    image_path: StringProperty(
+        name=_("Image"),
+        description=_("Local image file used as reference for generation."),
+        subtype='FILE_PATH',
+        default="",
+        options={"SKIP_SAVE"},
+    )
     result_format: EnumProperty(
         name=_("Result Format"),
         description=_("File format of the generated asset."),

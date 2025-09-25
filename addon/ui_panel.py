@@ -66,6 +66,17 @@ class MH3D_PT_MainPanel(bpy.types.Panel):
             icon='INFO',
         )
 
+        input_box = layout.box()
+        input_box.label(text=_("Input (ImageBase64)"), icon='FILE_IMAGE')
+        input_row = input_box.row()
+        input_row.prop(settings, "image_path", text=_("Image File"))
+        input_box.label(
+            text=_(
+                "Images under 8MB after encoding are supported. Large files are recompressed automatically."
+            ),
+            icon='INFO',
+        )
+
         gen_box = layout.box()
         gen_box.label(text=_("Generation Settings"), icon='MODIFIER')
         gen_col = gen_box.column(align=True)

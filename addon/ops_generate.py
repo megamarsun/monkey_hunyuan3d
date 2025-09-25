@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import base64
+import io
 import json
 import os
 import shutil
@@ -23,6 +25,8 @@ logger = get_logger()
 API_ENDPOINT = "ai3d.tencentcloudapi.com"
 API_VERSION = "2025-05-13"
 POLL_INTERVAL = 2.0
+MAX_IMAGE_BASE64_SIZE = 8 * 1024 * 1024
+JPEG_QUALITY_STEPS = (95, 90, 85, 80, 75, 70, 65, 60)
 
 
 @dataclass(frozen=True)
@@ -118,6 +122,36 @@ def _suffix_for_format(fmt: str) -> str:
         "OBJ": ".obj",
         "FBX": ".fbx",
     }.get(fmt.upper(), ".bin")
+
+
+def _encode_image_to_base64(path: str, target_max_bytes: int = MAX_IMAGE_BASE64_SIZE) -> str:
+    if not path:
+        raise ValueError("Image path is empty.")
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
+    try:
+        from PIL import Image  # type: ignore[import-not-found]
+    except ImportError as exc:  # pragma: no cover - environment dependent
+        raise ImportError("pillow-missing") from exc
+
+    try:
+        with Image.open(path) as handle:
+            try:
+                img = handle.convert("RGB")
+            except Exception as exc:  # pragma: no cover - depends on PIL backend
+                raise ValueError(f"Failed to convert image: {exc}") from exc
+    except Exception as exc:  # pragma: no cover - depends on user file
+        raise ValueError(f"Failed to open image: {exc}") from exc
+
+    for quality in JPEG_QUALITY_STEPS:
+        buffer = io.BytesIO()
+        img.save(buffer, format="JPEG", quality=quality, optimize=True)
+        data = buffer.getvalue()
+        encoded = base64.b64encode(data)
+        if len(encoded) < target_max_bytes:
+            return encoded.decode("ascii")
+
+    raise ValueError("Encoded image exceeds size limit.")
 
 
 class MH3D_OT_OpenAPILink(Operator):
@@ -254,9 +288,46 @@ class MH3D_OT_Generate(Operator):
             self.report({'ERROR'}, _("Settings are not available on the scene."))
             return {'CANCELLED'}
 
-        prompt = settings.prompt.strip()
-        if not prompt:
-            message = _("Prompt is empty.")
+        prompt = (settings.prompt or "").strip()
+
+        image_path_setting = getattr(settings, "image_path", "")
+        if not image_path_setting:
+            message = _("Please select an image file.")
+            self.report({'ERROR'}, message)
+            logger.error(message)
+            return {'CANCELLED'}
+        resolved_image_path = bpy.path.abspath(image_path_setting)
+        if not resolved_image_path:
+            message = _("Please select an image file.")
+            self.report({'ERROR'}, message)
+            logger.error(message)
+            return {'CANCELLED'}
+
+        try:
+            image_b64 = _encode_image_to_base64(resolved_image_path)
+        except ImportError:
+            message = _(
+                "Pillow (PIL) is required to encode image. Please install it into Blender's Python."
+            )
+            self.report({'ERROR'}, message)
+            logger.error(message)
+            return {'CANCELLED'}
+        except FileNotFoundError:
+            message = _("Image file could not be read.")
+            self.report({'ERROR'}, message)
+            logger.error(message)
+            return {'CANCELLED'}
+        except ValueError as exc:
+            key = "Encoded image exceeds size limit."
+            if key in str(exc):
+                message = _("Image is too large. Ensure the encoded size is under 8MB.")
+            else:
+                message = _("Failed to prepare image: {error}").format(error=exc)
+            self.report({'ERROR'}, message)
+            logger.error(message)
+            return {'CANCELLED'}
+        except Exception as exc:  # pragma: no cover - defensive
+            message = _("Failed to prepare image: {error}").format(error=exc)
             self.report({'ERROR'}, message)
             logger.error(message)
             return {'CANCELLED'}
@@ -284,9 +355,12 @@ class MH3D_OT_Generate(Operator):
         region = settings.region or DEFAULT_REGION
         client = _create_client(bundle, secret_id, secret_key, region)
         params: Dict[str, Any] = {
-            "Prompt": prompt,
             "ResultFormat": settings.result_format,
+            "Format": settings.result_format,
+            "ImageBase64": image_b64,
         }
+        if prompt:
+            params["Prompt"] = prompt
         reenable_pbr_after_success = not settings.enable_pbr
         if settings.enable_pbr:
             params["EnablePBR"] = True
