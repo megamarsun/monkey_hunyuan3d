@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import io
 import json
 import os
 import shutil
@@ -22,7 +25,7 @@ logger = get_logger()
 
 API_ENDPOINT = "ai3d.tencentcloudapi.com"
 API_VERSION = "2025-05-13"
-POLL_INTERVAL = 2.0
+POLL_SCHEDULE = (2.0, 3.0, 5.0, 8.0, 13.0, 15.0)
 
 
 @dataclass(frozen=True)
@@ -118,6 +121,195 @@ def _suffix_for_format(fmt: str) -> str:
         "OBJ": ".obj",
         "FBX": ".fbx",
     }.get(fmt.upper(), ".bin")
+
+
+@dataclass
+class _ImageBundle:
+    values: list[str]
+    source: str
+    multi: bool
+    as_base64: bool
+    total_bytes: Optional[int] = None
+    base64_bytes: Optional[int] = None
+
+
+def _clean_base64(value: str) -> str:
+    stripped = value.strip()
+    if stripped.startswith("data:") and "," in stripped:
+        stripped = stripped.split(",", 1)[1]
+    return stripped
+
+
+def _validate_base64(value: str) -> tuple[str, int, int]:
+    cleaned = _clean_base64(value)
+    try:
+        decoded = base64.b64decode(cleaned, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError(_("Invalid base64 image payload: {error}").format(error=exc)) from exc
+    return cleaned, len(decoded), len(cleaned)
+
+
+def _allowed_extensions() -> set[str]:
+    return {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
+
+
+def _load_image_bytes(path: str) -> bytes:
+    try:
+        from PIL import Image  # type: ignore[import]
+    except Exception:  # pragma: no cover - optional dependency
+        with open(path, "rb") as handle:
+            return handle.read()
+
+    try:
+        with Image.open(path) as image:
+            has_alpha = image.mode in {"RGBA", "LA"}
+            target_mode = "RGBA" if has_alpha else "RGB"
+            converted = image.convert(target_mode)
+            buffer = io.BytesIO()
+            if has_alpha:
+                converted.save(buffer, format="PNG", optimize=True)
+            else:
+                converted.save(buffer, format="JPEG", optimize=True, quality=92)
+            return buffer.getvalue()
+    except Exception as exc:  # pragma: no cover - depends on Pillow support
+        logger.warning("Failed to process image %s via Pillow: %s", path, exc)
+        with open(path, "rb") as handle:
+            return handle.read()
+
+
+def _encode_file_to_base64(path: str) -> tuple[str, int, int]:
+    data = _load_image_bytes(path)
+    encoded = base64.b64encode(data).decode("ascii")
+    return encoded, len(data), len(encoded)
+
+
+def _prepare_images(settings: bpy.types.PropertyGroup) -> Optional[_ImageBundle]:
+    requires_image = settings.input_mode in {"IMAGE", "TEXT_IMAGE"}
+    if not requires_image:
+        return None
+
+    source = settings.image_source
+    multi = bool(settings.multi_view)
+
+    if source == 'URL':
+        if multi:
+            values = [item.value.strip() for item in settings.image_files if item.value.strip()]
+        else:
+            url = settings.image_url.strip()
+            values = [url] if url else []
+        if not values:
+            raise ValueError(_("No image URLs provided."))
+        for value in values:
+            lower = value.lower()
+            if not (lower.startswith("http://") or lower.startswith("https://")):
+                raise ValueError(_("Image URLs must start with http:// or https://."))
+        return _ImageBundle(values=values, source='URL', multi=multi, as_base64=False)
+
+    if source == 'BASE64':
+        if multi:
+            raw_values = [item.value for item in settings.image_files if item.value.strip()]
+        else:
+            base_value = settings.image_b64.strip()
+            raw_values = [base_value] if base_value else []
+        if not raw_values:
+            raise ValueError(_("No base64 images were provided."))
+        cleaned_values: list[str] = []
+        total_bytes = 0
+        total_encoded = 0
+        for raw in raw_values:
+            cleaned, decoded_bytes, encoded_bytes = _validate_base64(raw)
+            cleaned_values.append(cleaned)
+            total_bytes += decoded_bytes
+            total_encoded += encoded_bytes
+        limit_mb = max(1, int(getattr(settings, "image_b64_limit_mb", 20)))
+        limit_bytes = limit_mb * 1024 * 1024
+        if total_bytes > limit_bytes:
+            raise ValueError(
+                _("Total decoded base64 size {size:.1f} MB exceeds limit of {limit} MB.").format(
+                    size=total_bytes / (1024 * 1024),
+                    limit=limit_mb,
+                )
+            )
+        return _ImageBundle(
+            values=cleaned_values,
+            source='BASE64',
+            multi=multi,
+            as_base64=True,
+            total_bytes=total_bytes,
+            base64_bytes=total_encoded,
+        )
+
+    # FILE source
+    items = [item for item in settings.image_files if item.value.strip()]
+    if not items:
+        raise ValueError(_("No image files were selected."))
+    if not multi:
+        index = getattr(settings, "image_files_index", 0)
+        if 0 <= index < len(items):
+            items = [items[index]]
+        else:
+            items = [items[-1]]
+    encoded_values: list[str] = []
+    total_bytes = 0
+    total_encoded = 0
+    for entry in items:
+        original = entry.value
+        path_value = bpy.path.abspath(original) if hasattr(bpy, "path") else original
+        path_value = os.path.expanduser(path_value)
+        if not os.path.isfile(path_value):
+            raise ValueError(_("Image file not found: {path}").format(path=path_value))
+        ext = os.path.splitext(path_value)[1].lower()
+        if ext and ext not in _allowed_extensions():
+            raise ValueError(
+                _("Unsupported image file extension: {extension}").format(extension=ext)
+            )
+        encoded, decoded_bytes, encoded_bytes = _encode_file_to_base64(path_value)
+        encoded_values.append(encoded)
+        total_bytes += decoded_bytes
+        total_encoded += encoded_bytes
+    return _ImageBundle(
+        values=encoded_values,
+        source='FILE',
+        multi=multi,
+        as_base64=True,
+        total_bytes=total_bytes,
+        base64_bytes=total_encoded,
+    )
+
+
+def _build_payload(
+    settings: bpy.types.PropertyGroup,
+    prompt: str,
+    images: Optional[_ImageBundle],
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "ResultFormat": settings.result_format,
+    }
+    if prompt:
+        payload["Prompt"] = prompt
+    if getattr(settings, "enable_pbr", False):
+        payload["EnablePBR"] = True
+    if getattr(settings, "front_mask", False):
+        payload["FrontMask"] = True
+    if images:
+        key = "Images" if images.multi else "Image"
+        payload[key] = images.values if images.multi else images.values[0]
+    return payload
+
+
+def _summarize_request(
+    settings: bpy.types.PropertyGroup,
+    images: Optional[_ImageBundle],
+) -> str:
+    parts = [f"input={settings.input_mode}"]
+    parts.append(f"api={settings.api_target}")
+    if images:
+        parts.append(f"source={settings.image_source}")
+        parts.append(f"images={len(images.values)}")
+        if images.total_bytes:
+            mb = images.total_bytes / (1024 * 1024)
+            parts.append(f"total≈{mb:.1f}MB")
+    return " / ".join(parts)
 
 
 class MH3D_OT_OpenAPILink(Operator):
@@ -254,9 +446,45 @@ class MH3D_OT_Generate(Operator):
             self.report({'ERROR'}, _("Settings are not available on the scene."))
             return {'CANCELLED'}
 
-        prompt = settings.prompt.strip()
-        if not prompt:
-            message = _("Prompt is empty.")
+        prompt_raw = settings.prompt.strip()
+        prompt_required = settings.input_mode in {"TEXT", "TEXT_IMAGE"}
+        if prompt_required and not prompt_raw:
+            message = _("Prompt is required for the selected input mode.")
+            settings.last_status = "ERROR"
+            settings.last_error = message
+            self.report({'ERROR'}, message)
+            logger.error(message)
+            return {'CANCELLED'}
+
+        try:
+            images_bundle = _prepare_images(settings)
+        except ValueError as exc:
+            message = str(exc)
+            settings.last_status = "ERROR"
+            settings.last_error = message
+            self.report({'ERROR'}, message)
+            logger.error("Image preparation failed: %s", exc)
+            return {'CANCELLED'}
+
+        if settings.input_mode in {"IMAGE", "TEXT_IMAGE"} and images_bundle is None:
+            message = _("At least one reference image is required.")
+            settings.last_status = "ERROR"
+            settings.last_error = message
+            self.report({'ERROR'}, message)
+            logger.error(message)
+            return {'CANCELLED'}
+
+        prompt_value = prompt_raw if settings.input_mode != "IMAGE" else ""
+        payload = _build_payload(settings, prompt_value, images_bundle)
+        settings.last_request_summary = _summarize_request(settings, images_bundle)
+
+        target = settings.api_target
+        if target != "TENCENT_CLOUD":
+            message = _(
+                "API target '{target}' is not implemented yet."
+            ).format(target=target)
+            settings.last_status = "ERROR"
+            settings.last_error = message
             self.report({'ERROR'}, message)
             logger.error(message)
             return {'CANCELLED'}
@@ -273,6 +501,8 @@ class MH3D_OT_Generate(Operator):
             message = _(
                 "API keys missing: set environment variables or fill SecretId/SecretKey."
             )
+            settings.last_status = "ERROR"
+            settings.last_error = message
             self.report({'ERROR'}, message)
             logger.error(message)
             return {'CANCELLED'}
@@ -283,13 +513,8 @@ class MH3D_OT_Generate(Operator):
 
         region = settings.region or DEFAULT_REGION
         client = _create_client(bundle, secret_id, secret_key, region)
-        params: Dict[str, Any] = {
-            "Prompt": prompt,
-            "ResultFormat": settings.result_format,
-        }
+        params: Dict[str, Any] = dict(payload)
         reenable_pbr_after_success = not settings.enable_pbr
-        if settings.enable_pbr:
-            params["EnablePBR"] = True
 
         self._set_wait_cursor(context)
         try:
@@ -324,7 +549,10 @@ class MH3D_OT_Generate(Operator):
         self.report({'INFO'}, info_message)
         logger.info("Submitted job %s", job_id)
 
+        poll_attempt = 1
+
         def poll_job() -> Optional[float]:
+            nonlocal poll_attempt
             scene_inner = bpy.context.scene
             if not scene_inner or not hasattr(scene_inner, "mh3d_settings"):
                 logger.warning("Scene missing while polling job %s; stopping timer.", job_id)
@@ -382,7 +610,9 @@ class MH3D_OT_Generate(Operator):
             failure_statuses = {"FAIL", "FAILED"}
 
             if status_upper not in success_statuses | failure_statuses:
-                return POLL_INTERVAL
+                interval = POLL_SCHEDULE[min(poll_attempt, len(POLL_SCHEDULE) - 1)]
+                poll_attempt += 1
+                return interval
             if status_upper in success_statuses:
                 files = payload.get("ResultFile3Ds") or []
                 url = None
@@ -453,9 +683,11 @@ class MH3D_OT_Generate(Operator):
                 self._active_job = None
                 return None
 
-            return POLL_INTERVAL
+            interval = POLL_SCHEDULE[min(poll_attempt, len(POLL_SCHEDULE) - 1)]
+            poll_attempt += 1
+            return interval
 
-        bpy.app.timers.register(poll_job, first_interval=POLL_INTERVAL)
+        bpy.app.timers.register(poll_job, first_interval=POLL_SCHEDULE[0])
         return {'FINISHED'}
 
 
