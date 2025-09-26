@@ -117,6 +117,7 @@ class MH3D_PT_MainPanel(bpy.types.Panel):
         run_box = layout.box()
         run_box.label(text=_("Run"), icon='PLAY')
         run_box.operator("mh3d.generate", icon="PLAY")
+        run_box.operator("mh3d.install_deps", icon='IMPORT')
 
         status_box = layout.box()
         status_box.label(text=_("Status"), icon='INFO')

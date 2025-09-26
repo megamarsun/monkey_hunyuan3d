@@ -82,6 +82,10 @@ _LOCALE_DICT = {
             "*",
             "Pillow (PIL) is required to encode image. Please install it into Blender's Python.",
         ): "画像エンコードにはPillow(PIL)が必要です。Blender同梱Pythonへインストールしてください。",
+        (
+            "*",
+            "Failed to load Pillow. Use 'Install Dependencies' or check your network access.",
+        ): "Pillowの読み込みに失敗しました。「依存関係をインストール」を実行するかネットワークを確認してください。",
         ("*", "Image file could not be read."): "画像ファイルを読み込めませんでした。",
         ("*", "Image is too large. Ensure the encoded size is under 8MB."): "画像が大きすぎます。エンコード後8MB未満にしてください。",
         ("*", "Failed to prepare image: {error}"): "画像の準備に失敗しました: {error}",
@@ -105,8 +109,12 @@ _LOCALE_DICT = {
         ("*", "UTF-8 expected. CRLF normalized."): "UTF-8形式を想定。CRLFはLFに正規化されます。",
         (
             "*",
-            "SDK not installed: run 'pip install tencentcloud-sdk-python' in Blender's Python.",
-        ): "SDK未導入：Blender 同梱Pythonで 'pip install tencentcloud-sdk-python' を実行してください。",
+            "Failed to install Tencent Cloud SDK: {error}",
+        ): "Tencent Cloud SDKのインストールに失敗しました: {error}",
+        (
+            "*",
+            "Failed to import Tencent Cloud SDK after installation attempt.",
+        ): "Tencent Cloud SDKをインストール後に読み込めませんでした。",
         (
             "*",
             "API keys missing: set environment variables or fill SecretId/SecretKey.",
@@ -133,6 +141,19 @@ _LOCALE_DICT = {
             "*",
             "Override the parameter name sent to the API when submitting prompt input.",
         ): "プロンプト入力送信時にAPIへ渡すパラメータ名を上書きします。",
+        ("*", "Install Dependencies"): "依存関係をインストール",
+        (
+            "*",
+            "Install Pillow and Tencent Cloud SDK into the add-on vendor folder.",
+        ): "PillowとTencent Cloud SDKをアドオンのvendorフォルダにインストールします。",
+        (
+            "*",
+            "Failed to install dependencies: {error}",
+        ): "依存関係のインストールに失敗しました: {error}",
+        (
+            "*",
+            "Dependencies installed successfully.",
+        ): "依存関係のインストールに成功しました。",
         ("*", "Set"): "設定済み",
         ("*", "Not set"): "未設定",
         ("*", "Submitting"): "送信中",

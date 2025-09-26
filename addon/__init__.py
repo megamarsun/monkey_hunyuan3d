@@ -198,10 +198,11 @@ def _unregister_properties() -> None:
 
 def register() -> None:
     logger.info("Registering Monkey hunyuan3D add-on core.")
-    from . import i18n, ops_generate, ops_text_tools, prefs, ui_panel
+    from . import i18n, ops_deps, ops_generate, ops_text_tools, prefs, ui_panel
 
     _register_properties()
     prefs.register()
+    ops_deps.register()
     ops_generate.register()
     ops_text_tools.register()
     ui_panel.register()
@@ -211,12 +212,13 @@ def register() -> None:
 
 def unregister() -> None:
     logger.info("Unregistering Monkey hunyuan3D add-on core.")
-    from . import i18n, ops_generate, ops_text_tools, prefs, ui_panel
+    from . import i18n, ops_deps, ops_generate, ops_text_tools, prefs, ui_panel
 
     i18n.unregister()
     ui_panel.unregister()
     ops_text_tools.unregister()
     ops_generate.unregister()
+    ops_deps.unregister()
     prefs.unregister()
     _unregister_properties()
     logger.info("Monkey hunyuan3D add-on unregistered.")
