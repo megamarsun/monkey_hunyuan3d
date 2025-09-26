@@ -18,7 +18,7 @@ import bpy
 from bpy.app.translations import pgettext_iface as _
 from bpy.types import Operator, Window
 
-from . import DEFAULT_REGION, get_logger
+from . import ADDON_ID, DEFAULT_REGION, get_logger
 
 logger = get_logger()
 
@@ -288,55 +288,79 @@ class MH3D_OT_Generate(Operator):
             self.report({'ERROR'}, _("Settings are not available on the scene."))
             return {'CANCELLED'}
 
+        input_mode = (getattr(settings, "input_mode", "IMAGE") or "IMAGE").upper()
+        if input_mode not in {"PROMPT", "IMAGE"}:
+            input_mode = "IMAGE"
+
         prompt = (settings.prompt or "").strip()
-
         image_path_setting = getattr(settings, "image_path", "")
-        if not image_path_setting:
-            message = _("Please select an image file.")
-            self.report({'ERROR'}, message)
-            logger.error(message)
-            return {'CANCELLED'}
-        resolved_image_path = bpy.path.abspath(image_path_setting)
-        if not resolved_image_path:
-            message = _("Please select an image file.")
-            self.report({'ERROR'}, message)
-            logger.error(message)
-            return {'CANCELLED'}
+        both_provided = bool(prompt) and bool(image_path_setting)
+        if both_provided:
+            info_message = _("Prompt and image cannot be used together.")
+            self.report({'INFO'}, info_message)
+            logger.warning("Both prompt and image set; using mode=%s only", input_mode)
 
-        if prompt:
-            message = _("Prompt cannot be used together with image input.")
-            self.report({'ERROR'}, message)
-            logger.error(message)
-            return {'CANCELLED'}
-
-        try:
-            image_b64 = _encode_image_to_base64(resolved_image_path)
-        except ImportError:
-            message = _(
-                "Pillow (PIL) is required to encode image. Please install it into Blender's Python."
-            )
-            self.report({'ERROR'}, message)
-            logger.error(message)
-            return {'CANCELLED'}
-        except FileNotFoundError:
-            message = _("Image file could not be read.")
-            self.report({'ERROR'}, message)
-            logger.error(message)
-            return {'CANCELLED'}
-        except ValueError as exc:
-            key = "Encoded image exceeds size limit."
-            if key in str(exc):
-                message = _("Image is too large. Ensure the encoded size is under 8MB.")
-            else:
+        image_b64: Optional[str] = None
+        if input_mode == "PROMPT":
+            if not prompt:
+                message = _("Prompt mode requires a non-empty prompt.")
+                self.report({'ERROR'}, message)
+                logger.error(message)
+                return {'CANCELLED'}
+        else:
+            if not image_path_setting:
+                message = _("Image mode requires a valid image file.")
+                self.report({'ERROR'}, message)
+                logger.error(message)
+                return {'CANCELLED'}
+            resolved_image_path = bpy.path.abspath(image_path_setting)
+            if not resolved_image_path:
+                message = _("Image mode requires a valid image file.")
+                self.report({'ERROR'}, message)
+                logger.error(message)
+                return {'CANCELLED'}
+            try:
+                image_b64 = _encode_image_to_base64(resolved_image_path)
+            except ImportError:
+                message = _(
+                    "Pillow (PIL) is required to encode image. Please install it into Blender's Python."
+                )
+                self.report({'ERROR'}, message)
+                logger.error(message)
+                return {'CANCELLED'}
+            except FileNotFoundError:
+                message = _("Image mode requires a valid image file.")
+                self.report({'ERROR'}, message)
+                logger.error(message)
+                return {'CANCELLED'}
+            except ValueError as exc:
+                limit_key = "Encoded image exceeds size limit."
+                empty_key = "Image path is empty."
+                text = str(exc)
+                if empty_key in text:
+                    message = _("Image mode requires a valid image file.")
+                elif limit_key in text:
+                    message = _("Image is too large. Ensure the encoded size is under 8MB.")
+                else:
+                    message = _("Failed to prepare image: {error}").format(error=exc)
+                self.report({'ERROR'}, message)
+                logger.error(message)
+                return {'CANCELLED'}
+            except Exception as exc:  # pragma: no cover - defensive
                 message = _("Failed to prepare image: {error}").format(error=exc)
-            self.report({'ERROR'}, message)
-            logger.error(message)
-            return {'CANCELLED'}
-        except Exception as exc:  # pragma: no cover - defensive
-            message = _("Failed to prepare image: {error}").format(error=exc)
-            self.report({'ERROR'}, message)
-            logger.error(message)
-            return {'CANCELLED'}
+                self.report({'ERROR'}, message)
+                logger.error(message)
+                return {'CANCELLED'}
+
+        prompt_param_name = "Prompt"
+        try:
+            addon_entry = bpy.context.preferences.addons.get(ADDON_ID)
+        except Exception:
+            addon_entry = None
+        if addon_entry is not None:
+            candidate = getattr(getattr(addon_entry, "preferences", None), "prompt_param_name", "")
+            if isinstance(candidate, str) and candidate.strip():
+                prompt_param_name = candidate.strip()
 
         try:
             bundle = _import_sdk()
@@ -362,11 +386,26 @@ class MH3D_OT_Generate(Operator):
         client = _create_client(bundle, secret_id, secret_key, region)
         params: Dict[str, Any] = {
             "ResultFormat": settings.result_format,
-            "ImageBase64": image_b64,
         }
+        if input_mode == "PROMPT":
+            params[prompt_param_name] = prompt
+        else:
+            if not image_b64:
+                message = _("Image mode requires a valid image file.")
+                self.report({'ERROR'}, message)
+                logger.error(message)
+                return {'CANCELLED'}
+            params["ImageBase64"] = image_b64
         reenable_pbr_after_success = not settings.enable_pbr
         if settings.enable_pbr:
             params["EnablePBR"] = True
+
+        logger.info(
+            "Submitting job with mode=%s, format=%s, pbr=%s",
+            input_mode,
+            settings.result_format,
+            bool(settings.enable_pbr),
+        )
 
         self._set_wait_cursor(context)
         try:
