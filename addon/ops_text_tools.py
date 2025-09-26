@@ -32,42 +32,66 @@ def _get_selected_text(settings) -> bpy.types.Text | None:
 class MH3D_OT_OpenTextEditor(Operator):
     bl_idname = "mh3d.open_text_editor"
     bl_label = _("Open Text Editor")
-    bl_description = _("Open or focus a Text Editor area for prompt editing.")
+    bl_description = _("Open a separate Text Editor window for prompt editing.")
 
     def execute(self, context: bpy.types.Context) -> set[str]:
-        area = getattr(context, "area", None)
-        if area is not None and area.type != 'TEXT_EDITOR':
-            try:
-                area.type = 'TEXT_EDITOR'
-                logger.info("Switched current area to Text Editor.")
-                return {'FINISHED'}
-            except Exception as exc:
-                logger.warning("Failed to switch current area to Text Editor: %s", exc)
-
-        window = getattr(context, "window", None)
-        screen = getattr(window, "screen", None)
-        if screen is None:
+        window_manager = getattr(context, "window_manager", None)
+        if window_manager is None:
             self.report({'ERROR'}, _("Settings unavailable."))
-            logger.error("No active screen available for Text Editor switch.")
+            logger.error("Window manager unavailable when opening Text Editor window.")
             return {'CANCELLED'}
 
-        for screen_area in screen.areas:
-            if screen_area.type == 'TEXT_EDITOR':
-                logger.info("Found existing Text Editor area; leaving layout unchanged.")
-                return {'FINISHED'}
-
-        if not screen.areas:
-            self.report({'ERROR'}, _("Settings unavailable."))
-            logger.error("Screen has no areas to convert to Text Editor.")
-            return {'CANCELLED'}
-
+        windows_before = {window.as_pointer() for window in window_manager.windows}
         try:
-            screen.areas[0].type = 'TEXT_EDITOR'
-            logger.info("Converted first area to Text Editor for prompt editing.")
+            result = bpy.ops.wm.window_new()
         except Exception as exc:
-            self.report({'ERROR'}, str(exc))
-            logger.error("Failed to convert area to Text Editor: %s", exc)
+            self.report({'ERROR'}, _("Failed to open Text Editor window."))
+            logger.error("Exception while creating new window: %s", exc)
             return {'CANCELLED'}
+
+        if result != {'FINISHED'}:
+            self.report({'ERROR'}, _("Failed to open Text Editor window."))
+            logger.error("Operator wm.window_new returned %s", result)
+            return {'CANCELLED'}
+
+        windows_after = {
+            window.as_pointer(): window for window in window_manager.windows
+        }
+        new_windows = [
+            window for ptr, window in windows_after.items() if ptr not in windows_before
+        ]
+        if not new_windows:
+            self.report({'ERROR'}, _("Failed to open Text Editor window."))
+            logger.error("No new window detected after wm.window_new call.")
+            return {'CANCELLED'}
+
+        new_window = new_windows[-1]
+        screen = getattr(new_window, "screen", None)
+        if screen is None:
+            self.report({'ERROR'}, _("Failed to open Text Editor window."))
+            logger.error("New window has no screen to configure.")
+            return {'CANCELLED'}
+
+        target_area = None
+        for area in screen.areas:
+            if area.type == 'TEXT_EDITOR':
+                target_area = area
+                break
+
+        if target_area is None:
+            if not screen.areas:
+                self.report({'ERROR'}, _("Failed to open Text Editor window."))
+                logger.error("New window screen has no areas to convert.")
+                return {'CANCELLED'}
+            target_area = screen.areas[0]
+            try:
+                target_area.type = 'TEXT_EDITOR'
+            except Exception as exc:
+                self.report({'ERROR'}, _("Failed to open Text Editor window."))
+                logger.error("Failed to convert area to Text Editor: %s", exc)
+                return {'CANCELLED'}
+
+        logger.info("Opened new Text Editor window for prompt editing.")
         return {'FINISHED'}
 
 

@@ -91,12 +91,17 @@ _LOCALE_DICT = {
         ("*", "External File"): "外部ファイル",
         ("*", "Prompt File"): "プロンプトファイル",
         ("*", "Open Text Editor"): "テキストエディタを開く",
+        (
+            "*",
+            "Open a separate Text Editor window for prompt editing.",
+        ): "プロンプト編集用のテキストエディタを別ウィンドウで開きます。",
         ("*", "New Text"): "新規テキスト",
         ("*", "Save Text to File"): "テキストをファイルに保存",
         ("*", "Load File to Text"): "ファイルをテキストに読み込み",
         ("*", "No text block selected."): "テキストブロックが選択されていません。",
         ("*", "File path is empty."): "ファイルパスが空です。",
         ("*", "Failed to read prompt from file."): "ファイルからプロンプトを読み込めませんでした。",
+        ("*", "Failed to open Text Editor window."): "テキストエディタウィンドウを開けませんでした。",
         ("*", "UTF-8 expected. CRLF normalized."): "UTF-8形式を想定。CRLFはLFに正規化されます。",
         (
             "*",
