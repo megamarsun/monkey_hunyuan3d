@@ -154,6 +154,57 @@ def _encode_image_to_base64(path: str, target_max_bytes: int = MAX_IMAGE_BASE64_
     raise ValueError("Encoded image exceeds size limit.")
 
 
+def _normalize_newlines(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _read_prompt_from_source(settings: bpy.types.PropertyGroup) -> str:
+    source_value = getattr(settings, "prompt_source", "INLINE") or "INLINE"
+    source = source_value.upper()
+    if source == "TEXT_BLOCK":
+        text_name = (getattr(settings, "prompt_text_name", "") or "").strip()
+        if not text_name:
+            logger.warning("Text block missing for prompt source.")
+            raise ValueError("No text block selected.")
+        text_block = bpy.data.texts.get(text_name)
+        if text_block is None:
+            logger.warning("Text block '%s' not found for prompt source.", text_name)
+            raise ValueError("No text block selected.")
+        raw_text = (
+            text_block.as_string()
+            if hasattr(text_block, "as_string")
+            else "\n".join(line.body for line in text_block.lines)
+        )
+        normalized = _normalize_newlines(raw_text)
+        prompt_text = normalized.strip()
+    elif source == "EXTERNAL_FILE":
+        file_setting = getattr(settings, "prompt_file_path", "") or ""
+        resolved_path = bpy.path.abspath(file_setting)
+        if not resolved_path:
+            logger.warning("Prompt file path empty.")
+            raise ValueError("File path is empty.")
+        try:
+            with open(resolved_path, "rb") as handle:
+                raw = handle.read()
+        except OSError as exc:
+            logger.error("Failed to read prompt file '%s': %s", resolved_path, exc)
+            raise ValueError("Failed to read prompt from file.") from exc
+        decoded = raw.decode("utf-8", errors="replace")
+        normalized = _normalize_newlines(decoded)
+        prompt_text = normalized.strip()
+    else:
+        inline_prompt = getattr(settings, "prompt", "") or ""
+        normalized = _normalize_newlines(inline_prompt)
+        prompt_text = normalized.strip()
+
+    if not prompt_text:
+        logger.warning("Prompt text empty after reading source=%s.", source)
+        raise ValueError("Prompt is empty.")
+
+    logger.info("Prompt source=%s, length=%d", source, len(prompt_text))
+    return prompt_text
+
+
 class MH3D_OT_OpenAPILink(Operator):
     bl_idname = "mh3d.open_api_link"
     bl_label = _("Open API Key Page")
@@ -292,18 +343,30 @@ class MH3D_OT_Generate(Operator):
         if input_mode not in {"PROMPT", "IMAGE"}:
             input_mode = "IMAGE"
 
-        prompt = (settings.prompt or "").strip()
         image_path_setting = getattr(settings, "image_path", "")
-        both_provided = bool(prompt) and bool(image_path_setting)
-        if both_provided:
+        prompt_text = ""
+        if input_mode == "PROMPT" and image_path_setting:
             info_message = _("Prompt and image cannot be used together.")
             self.report({'INFO'}, info_message)
-            logger.warning("Both prompt and image set; using mode=%s only", input_mode)
+            logger.warning(
+                "Image path provided while using PROMPT mode; ignoring image_path.",
+            )
 
         image_b64: Optional[str] = None
         if input_mode == "PROMPT":
-            if not prompt:
-                message = _("Prompt mode requires a non-empty prompt.")
+            try:
+                prompt_text = _read_prompt_from_source(settings)
+            except ValueError as exc:
+                key = str(exc)
+                translations = {
+                    "No text block selected.": _("No text block selected."),
+                    "File path is empty.": _("File path is empty."),
+                    "Failed to read prompt from file.": _(
+                        "Failed to read prompt from file."
+                    ),
+                    "Prompt is empty.": _("Prompt is empty."),
+                }
+                message = translations.get(key, str(exc))
                 self.report({'ERROR'}, message)
                 logger.error(message)
                 return {'CANCELLED'}
@@ -388,7 +451,7 @@ class MH3D_OT_Generate(Operator):
             "ResultFormat": settings.result_format,
         }
         if input_mode == "PROMPT":
-            params[prompt_param_name] = prompt
+            params[prompt_param_name] = prompt_text
         else:
             if not image_b64:
                 message = _("Image mode requires a valid image file.")
