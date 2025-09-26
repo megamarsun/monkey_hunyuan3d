@@ -67,20 +67,25 @@ class MH3D_PT_MainPanel(bpy.types.Panel):
         )
 
         input_box = layout.box()
-        input_box.label(text=_("Input (ImageBase64)"), icon='FILE_IMAGE')
-        input_row = input_box.row()
-        input_row.prop(settings, "image_path", text=_("Image File"))
-        input_box.label(
-            text=_(
-                "Images under 8MB after encoding are supported. Large files are recompressed automatically."
-            ),
-            icon='INFO',
-        )
+        input_box.label(text=_("Input Mode"), icon='FILE_IMAGE')
+        mode_row = input_box.row(align=True)
+        mode_row.prop(settings, "input_mode", expand=True)
+
+        mode_value = getattr(settings, "input_mode", "IMAGE")
+        if mode_value == "PROMPT":
+            input_box.prop(settings, "prompt", text=_("Prompt"))
+        else:
+            input_box.prop(settings, "image_path", text=_("Image File"))
+            input_box.label(
+                text=_(
+                    "Images under 8MB after encoding are supported. Large files are recompressed automatically."
+                ),
+                icon='INFO',
+            )
 
         gen_box = layout.box()
         gen_box.label(text=_("Generation Settings"), icon='MODIFIER')
         gen_col = gen_box.column(align=True)
-        gen_col.prop(settings, "prompt", text=_("Prompt"))
         gen_col.prop(settings, "result_format", text=_("Result Format"))
         gen_col.prop(settings, "enable_pbr", text=_("Enable PBR"))
         gen_col.prop(settings, "region", text=_("Region"))

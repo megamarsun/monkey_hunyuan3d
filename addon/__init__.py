@@ -64,6 +64,15 @@ logger = get_logger()
 class MH3DSettings(bpy.types.PropertyGroup):
     """Shared settings stored on the scene."""
 
+    input_mode: EnumProperty(
+        name=_("Input Mode"),
+        description=_("Choose how to provide input to Hunyuan3D."),
+        items=(
+            ("PROMPT", "Prompt", _("Use text prompt only")),
+            ("IMAGE", "Image", _("Use local image file (Base64)")),
+        ),
+        default="IMAGE",
+    )
     prompt: StringProperty(
         name=_("Prompt"),
         description=_("Prompt used for Hunyuan3D generation."),

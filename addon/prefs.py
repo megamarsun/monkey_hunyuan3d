@@ -7,6 +7,7 @@ import os
 
 import bpy
 from bpy.app.translations import pgettext_iface as _
+from bpy.props import StringProperty
 
 from . import ADDON_ID, get_logger
 
@@ -19,6 +20,14 @@ def _env_status(name: str) -> str:
 
 class MH3D_AddonPreferences(bpy.types.AddonPreferences):
     bl_idname = ADDON_ID
+
+    prompt_param_name: StringProperty(
+        name=_("Prompt parameter name in API"),
+        description=_(
+            "Override the parameter name sent to the API when submitting prompt input."
+        ),
+        default="Prompt",
+    )
 
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
@@ -43,6 +52,8 @@ class MH3D_AddonPreferences(bpy.types.AddonPreferences):
             text=_("Set environment variables for production use."),
             icon='LOCKED',
         )
+
+        layout.prop(self, "prompt_param_name")
 
 
 _CLASSES = (MH3D_AddonPreferences,)
