@@ -73,7 +73,31 @@ class MH3D_PT_MainPanel(bpy.types.Panel):
 
         mode_value = getattr(settings, "input_mode", "IMAGE")
         if mode_value == "PROMPT":
-            input_box.prop(settings, "prompt", text=_("Prompt"))
+            prompt_col = input_box.column(align=True)
+            prompt_col.prop(settings, "prompt_source", text=_("Prompt Source"))
+            source = getattr(settings, "prompt_source", "INLINE")
+            if source == "TEXT_BLOCK":
+                prompt_col.prop_search(
+                    settings,
+                    "prompt_text_name",
+                    bpy.data,
+                    "texts",
+                    text=_("Text Block"),
+                )
+                editor_row = prompt_col.row(align=True)
+                editor_row.operator("mh3d.open_text_editor", icon='FILE_TEXT')
+                editor_row.operator("mh3d.new_text", icon='ADD')
+                file_row = prompt_col.row(align=True)
+                file_row.operator("mh3d.save_text_to_file", icon='FILE_TICK')
+                file_row.operator("mh3d.load_file_to_text", icon='FILE_FOLDER')
+            elif source == "EXTERNAL_FILE":
+                file_col = prompt_col.column(align=True)
+                file_col.prop(settings, "prompt_file_path", text=_("Prompt File"))
+                file_col.label(text=_("UTF-8 expected. CRLF normalized."), icon='INFO')
+            else:
+                inline_col = prompt_col.column(align=True)
+                inline_col.scale_y = 1.4
+                inline_col.prop(settings, "prompt", text=_("Prompt"))
         else:
             input_box.prop(settings, "image_path", text=_("Image File"))
             input_box.label(

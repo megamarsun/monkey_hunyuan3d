@@ -73,10 +73,32 @@ class MH3DSettings(bpy.types.PropertyGroup):
         ),
         default="IMAGE",
     )
+    prompt_source: EnumProperty(
+        name=_("Prompt Source"),
+        description=_("Where to read the prompt text in PROMPT mode."),
+        items=(
+            ("INLINE", "Inline", _("Use inline textbox.")),
+            ("TEXT_BLOCK", "Text Block", _("Use a Blender Text datablock.")),
+            ("EXTERNAL_FILE", "External File", _("Load from a file on disk.")),
+        ),
+        default="INLINE",
+    )
     prompt: StringProperty(
         name=_("Prompt"),
         description=_("Prompt used for Hunyuan3D generation."),
         default="a cute robot toy",
+    )
+    prompt_text_name: StringProperty(
+        name=_("Text Block"),
+        description=_("Name of the Blender Text datablock used as prompt source."),
+        default="",
+    )
+    prompt_file_path: StringProperty(
+        name=_("Prompt File"),
+        description=_("External file path for prompt source."),
+        subtype='FILE_PATH',
+        default="",
+        options={"SKIP_SAVE"},
     )
     image_path: StringProperty(
         name=_("Image"),
@@ -176,11 +198,12 @@ def _unregister_properties() -> None:
 
 def register() -> None:
     logger.info("Registering Monkey hunyuan3D add-on core.")
-    from . import i18n, ops_generate, prefs, ui_panel
+    from . import i18n, ops_generate, ops_text_tools, prefs, ui_panel
 
     _register_properties()
     prefs.register()
     ops_generate.register()
+    ops_text_tools.register()
     ui_panel.register()
     i18n.register()
     logger.info("Monkey hunyuan3D add-on registered.")
@@ -188,10 +211,11 @@ def register() -> None:
 
 def unregister() -> None:
     logger.info("Unregistering Monkey hunyuan3D add-on core.")
-    from . import i18n, ops_generate, prefs, ui_panel
+    from . import i18n, ops_generate, ops_text_tools, prefs, ui_panel
 
     i18n.unregister()
     ui_panel.unregister()
+    ops_text_tools.unregister()
     ops_generate.unregister()
     prefs.unregister()
     _unregister_properties()
