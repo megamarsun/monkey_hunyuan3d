@@ -10,10 +10,10 @@ from typing import Iterable
 import bpy
 from bpy.app.translations import pgettext_iface as _
 from bpy.props import (
-    BoolProperty,
     EnumProperty,
     PointerProperty,
     StringProperty,
+    BoolProperty,
 )
 
 __all__ = (
@@ -157,6 +157,30 @@ class MH3DSettings(bpy.types.PropertyGroup):
         subtype='PASSWORD',
         options={"SKIP_SAVE"},
     )
+    secret_password: StringProperty(
+        name=_("Password"),
+        description=_("Password used to encrypt or decrypt stored secrets."),
+        subtype='PASSWORD',
+        default="",
+        options={"SKIP_SAVE"},
+    )
+    secret_storage_mode: EnumProperty(
+        name=_("Storage Mode"),
+        description=_("How to retain secrets after input."),
+        items=(
+            ("NONE", "NONE", _("Do not store secrets after use.")),
+            ("SESSION", "SESSION", _("Keep secrets in memory until Blender exits.")),
+            ("DISK", "DISK", _("Encrypt secrets to an external file.")),
+        ),
+        default="NONE",
+    )
+    secret_remember_password: BoolProperty(
+        name=_("Remember Password on Disk"),
+        description=_(
+            "Store the encryption password obfuscated on disk. Use only if you accept the risk of local compromise."
+        ),
+        default=False,
+    )
     job_id: StringProperty(
         name=_("JobId"),
         description=_("Last submitted job identifier."),
@@ -198,12 +222,13 @@ def _unregister_properties() -> None:
 
 def register() -> None:
     logger.info("Registering Monkey hunyuan3D add-on core.")
-    from . import i18n, ops_deps, ops_generate, ops_text_tools, prefs, ui_panel
+    from . import i18n, ops_deps, ops_generate, ops_secrets, ops_text_tools, prefs, ui_panel
 
     _register_properties()
     prefs.register()
     ops_deps.register()
     ops_generate.register()
+    ops_secrets.register()
     ops_text_tools.register()
     ui_panel.register()
     i18n.register()
@@ -212,12 +237,13 @@ def register() -> None:
 
 def unregister() -> None:
     logger.info("Unregistering Monkey hunyuan3D add-on core.")
-    from . import i18n, ops_deps, ops_generate, ops_text_tools, prefs, ui_panel
+    from . import i18n, ops_deps, ops_generate, ops_secrets, ops_text_tools, prefs, ui_panel
 
     i18n.unregister()
     ui_panel.unregister()
     ops_text_tools.unregister()
     ops_generate.unregister()
+    ops_secrets.unregister()
     ops_deps.unregister()
     prefs.unregister()
     _unregister_properties()

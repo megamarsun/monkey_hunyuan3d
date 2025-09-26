@@ -60,6 +60,28 @@ class MH3D_PT_MainPanel(bpy.types.Panel):
         api_col = api_box.column(align=True)
         api_col.prop(settings, "secret_id", text=_("SecretId"))
         api_col.prop(settings, "secret_key", text=_("SecretKey"))
+        api_col.prop(settings, "secret_password")
+        api_col.prop(settings, "secret_storage_mode")
+        if settings.secret_storage_mode == 'DISK':
+            warn_col = api_col.column(align=True)
+            warn_col.alert = True
+            warn_col.label(
+                text=_("Local disk storage is vulnerable; enable only if you accept the risk."),
+                icon='ERROR',
+            )
+            api_col.prop(settings, "secret_remember_password")
+            if settings.secret_remember_password:
+                api_col.label(
+                    text=_("Storing the password is your responsibility. Physical access may expose it."),
+                    icon='INFO',
+                )
+        else:
+            disabled_row = api_col.row(align=True)
+            disabled_row.enabled = False
+            disabled_row.prop(settings, "secret_remember_password", toggle=True)
+        ops_row = api_col.row(align=True)
+        ops_row.operator("mh3d.save_secrets", icon='DISK_DRIVE')
+        ops_row.operator("mh3d.test_secrets", icon='FILE_REFRESH')
         api_col.operator("mh3d.open_api_link", icon="URL")
         api_col.label(
             text=_("Production use of environment variables is recommended."),
