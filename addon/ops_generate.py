@@ -19,6 +19,15 @@ from bpy.app.translations import pgettext_iface as _
 from bpy.types import Operator, Window
 
 from . import ADDON_ID, DEFAULT_REGION, get_logger
+from .secret_storage import (
+    SecretStorageError,
+    get_session_password,
+    get_session_secret,
+    load_encrypted_secret,
+    load_password_from_disk,
+    set_session_password,
+    set_session_secret,
+)
 from .utils_deps import ensure_package
 
 logger = get_logger()
@@ -256,9 +265,44 @@ class MH3D_OT_Generate(Operator):
     _wait_cursor_windows: list[tuple[Window, str]] = []
 
     def _resolve_credentials(self, settings: bpy.types.PropertyGroup) -> tuple[str, str]:
-        secret_id = os.environ.get("TENCENTCLOUD_SECRET_ID") or settings.secret_id.strip()
-        secret_key = os.environ.get("TENCENTCLOUD_SECRET_KEY") or settings.secret_key.strip()
-        return secret_id, secret_key
+        env_secret_id = os.environ.get("TENCENTCLOUD_SECRET_ID", "").strip()
+        env_secret_key = os.environ.get("TENCENTCLOUD_SECRET_KEY", "").strip()
+        if env_secret_id and env_secret_key:
+            return env_secret_id, env_secret_key
+
+        ui_secret_id = settings.secret_id.strip()
+        ui_secret_key = settings.secret_key.strip()
+        if ui_secret_id and ui_secret_key:
+            return ui_secret_id, ui_secret_key
+
+        session_secret = get_session_secret()
+        if session_secret is not None:
+            return session_secret.secret_id, session_secret.secret_key
+
+        password_candidate = settings.secret_password.strip()
+        if password_candidate:
+            settings.secret_password = ""
+        else:
+            password_candidate = get_session_password() or ""
+        if not password_candidate:
+            try:
+                password_candidate = load_password_from_disk() or ""
+            except SecretStorageError as exc:
+                self.report({'ERROR'}, str(exc))
+                return "", ""
+
+        if not password_candidate:
+            return "", ""
+
+        try:
+            disk_secret = load_encrypted_secret(password_candidate)
+        except SecretStorageError as exc:
+            self.report({'ERROR'}, str(exc))
+            return "", ""
+
+        set_session_password(password_candidate)
+        set_session_secret(disk_secret.secret_id, disk_secret.secret_key)
+        return disk_secret.secret_id, disk_secret.secret_key
 
     @staticmethod
     def _friendly_hint(exc: Exception) -> str:
