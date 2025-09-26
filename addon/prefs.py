@@ -54,6 +54,7 @@ class MH3D_AddonPreferences(bpy.types.AddonPreferences):
         )
 
         layout.prop(self, "prompt_param_name")
+        layout.operator("mh3d.install_deps", icon='IMPORT')
 
 
 _CLASSES = (MH3D_AddonPreferences,)

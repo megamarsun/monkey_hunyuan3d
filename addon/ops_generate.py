@@ -19,6 +19,7 @@ from bpy.app.translations import pgettext_iface as _
 from bpy.types import Operator, Window
 
 from . import ADDON_ID, DEFAULT_REGION, get_logger
+from .utils_deps import ensure_package
 
 logger = get_logger()
 
@@ -47,12 +48,27 @@ def _import_sdk() -> _SDKBundle:
         )
         from tencentcloud.common.profile.client_profile import ClientProfile
         from tencentcloud.common.profile.http_profile import HttpProfile
-    except ImportError as exc:  # pragma: no cover - depends on user environment
-        raise RuntimeError(
-            _(
-                "SDK not installed: run 'pip install tencentcloud-sdk-python' in Blender's Python."
+    except ImportError:
+        try:
+            ensure_package("tencentcloud", "tencentcloud-sdk-python")
+        except Exception as exc:  # pragma: no cover - subprocess outcome
+            raise RuntimeError(
+                _("Failed to install Tencent Cloud SDK: {error}").format(error=exc)
+            ) from exc
+        try:
+            from tencentcloud.common import credential
+            from tencentcloud.common.abstract_client import AbstractClient
+            from tencentcloud.common.exception.tencent_cloud_sdk_exception import (
+                TencentCloudSDKException,
             )
-        ) from exc
+            from tencentcloud.common.profile.client_profile import ClientProfile
+            from tencentcloud.common.profile.http_profile import HttpProfile
+        except ImportError as exc:  # pragma: no cover - environment dependent
+            raise RuntimeError(
+                _(
+                    "Failed to import Tencent Cloud SDK after installation attempt."
+                )
+            ) from exc
 
     class Hunyuan3DClient(AbstractClient):
         _apiVersion = API_VERSION
@@ -130,9 +146,10 @@ def _encode_image_to_base64(path: str, target_max_bytes: int = MAX_IMAGE_BASE64_
     if not os.path.exists(path):
         raise FileNotFoundError(path)
     try:
+        ensure_package("PIL", "Pillow")
         from PIL import Image  # type: ignore[import-not-found]
-    except ImportError as exc:  # pragma: no cover - environment dependent
-        raise ImportError("pillow-missing") from exc
+    except Exception as exc:  # pragma: no cover - environment dependent
+        raise ImportError("pillow-autoinstall-failed") from exc
 
     try:
         with Image.open(path) as handle:
@@ -384,12 +401,12 @@ class MH3D_OT_Generate(Operator):
                 return {'CANCELLED'}
             try:
                 image_b64 = _encode_image_to_base64(resolved_image_path)
-            except ImportError:
+            except ImportError as exc:
                 message = _(
-                    "Pillow (PIL) is required to encode image. Please install it into Blender's Python."
+                    "Failed to load Pillow. Use 'Install Dependencies' or check your network access."
                 )
                 self.report({'ERROR'}, message)
-                logger.error(message)
+                logger.error("%s Error: %s", message, exc)
                 return {'CANCELLED'}
             except FileNotFoundError:
                 message = _("Image mode requires a valid image file.")
@@ -428,8 +445,9 @@ class MH3D_OT_Generate(Operator):
         try:
             bundle = _import_sdk()
         except RuntimeError as exc:
-            self.report({'ERROR'}, str(exc))
-            logger.error(str(exc))
+            error_text = str(exc)
+            self.report({'ERROR'}, error_text)
+            logger.error(error_text)
             return {'CANCELLED'}
 
         secret_id, secret_key = self._resolve_credentials(settings)
